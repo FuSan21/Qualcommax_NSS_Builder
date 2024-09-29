@@ -68,12 +68,12 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
+
       - name: Configure firmware image
         run: |
           mv custom_repo/${{ env.CONFIG_FILE }} .config
           make defconfig -j$(nproc)
-          
+
       - name: Include luci-theme-argon from Git
         run: |
           git clone --depth 1 --branch master --single-branch --no-checkout https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
@@ -81,7 +81,6 @@ jobs:
           echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-argon-config=y" >> .config
 
-        
       - name: Include additional packages
         run: |
           echo "CONFIG_PACKAGE_unzip=y" >> .config
@@ -98,7 +97,7 @@ jobs:
           echo "CONFIG_PACKAGE_iftop=y" >> .config
           echo "CONFIG_PACKAGE_igmpproxy=y" >> .config
           echo "CONFIG_PACKAGE_ip-full=y" >> .config
-          
+
       - name: Append CONFIG_RELR=y to target/linux/qualcommax/config-6.6
         run: echo "CONFIG_RELR=y" >> target/linux/qualcommax/config-6.6
 
