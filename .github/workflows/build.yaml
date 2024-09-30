@@ -87,7 +87,6 @@ jobs:
           echo "CONFIG_PACKAGE_acme-acmesh-dnsapi=y" >> .config
           echo "CONFIG_PACKAGE_auc=y" >> .config
           echo "CONFIG_PACKAGE_bash=y" >> .config
-          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
           echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
           echo "CONFIG_PACKAGE_coreutils-realpath=y" >> .config
           echo "CONFIG_PACKAGE_coreutils-sort=y" >> .config
@@ -95,8 +94,6 @@ jobs:
           echo "CONFIG_PACKAGE_curl=y" >> .config
           echo "CONFIG_PACKAGE_grep=y" >> .config
           echo "CONFIG_PACKAGE_iftop=y" >> .config
-          echo "CONFIG_PACKAGE_igmpproxy=y" >> .config
-          echo "CONFIG_PACKAGE_ip-full=y" >> .config
 
       - name: Append CONFIG_RELR=y to target/linux/qualcommax/config-6.6
         run: echo "CONFIG_RELR=y" >> target/linux/qualcommax/config-6.6
@@ -105,7 +102,10 @@ jobs:
         run: |
           mkdir -p ${{ env.CUSTOM_FILES_PATH }}
           mv custom_repo/${{ env.CUSTOM_FILES_PATH }}* ${{ env.CUSTOM_FILES_PATH }}
-
+          
+      - name: Print the .config file for debugging
+        run: cat .config
+        
       - name: Download dependencies
         run: make download V=s -j$(nproc)
 
