@@ -2,9 +2,9 @@ name: Build OpenWrt for specific target and release
 
 on:
   workflow_dispatch:
-  push:
-  schedule:
-    - cron: "0 */2 * * *"
+  # push:
+  # schedule:
+  #   - cron: "0 */2 * * *"
 
 env:
   REMOTE_REPOSITORY: qosmio/openwrt-ipq
@@ -73,6 +73,30 @@ jobs:
         run: |
           mv custom_repo/${{ env.CONFIG_FILE }} .config
           make defconfig -j$(nproc)
+          
+      - name: Include luci-theme-argon from Git
+        run: |
+          git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+          git clone https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
+          echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-argon-config=y" >> .config
+        
+      - name: Include additional packages
+        run: |
+          echo "CONFIG_PACKAGE_unzip=y" >> .config
+          echo "CONFIG_PACKAGE_acme-acmesh-dnsapi=y" >> .config
+          echo "CONFIG_PACKAGE_auc=y" >> .config
+          echo "CONFIG_PACKAGE_bash=y" >> .config
+          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+          echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
+          echo "CONFIG_PACKAGE_coreutils-realpath=y" >> .config
+          echo "CONFIG_PACKAGE_coreutils-sort=y" >> .config
+          echo "CONFIG_PACKAGE_coreutils-stty=y" >> .config
+          echo "CONFIG_PACKAGE_curl=y" >> .config
+          echo "CONFIG_PACKAGE_grep=y" >> .config
+          echo "CONFIG_PACKAGE_iftop=y" >> .config
+          echo "CONFIG_PACKAGE_igmpproxy=y" >> .config
+          echo "CONFIG_PACKAGE_ip-full=y" >> .config
 
       - name: Append CONFIG_RELR=y to target/linux/qualcommax/config-6.6
         run: echo "CONFIG_RELR=y" >> target/linux/qualcommax/config-6.6
