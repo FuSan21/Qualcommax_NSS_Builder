@@ -74,6 +74,13 @@ jobs:
             done
           fi
 
+      - name: Add custom packages
+        run: |
+          # Clone custom packages
+          mkdir -p package/custom
+          git clone https://github.com/jerrykuku/luci-theme-argon.git package/custom/luci-theme-argon
+          git clone https://github.com/jerrykuku/luci-app-argon-config.git package/custom/luci-app-argon-config
+
       - name: Update and install feeds
         run: ./scripts/feeds update -a && ./scripts/feeds install -a
 
