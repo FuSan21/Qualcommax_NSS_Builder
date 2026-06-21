@@ -47,10 +47,55 @@ if [ -w /sys/module/ath11k/parameters/nss_offload ]; then
   /etc/init.d/qca-nss-pbuf start
 fi
 
+# WAN + SQM bring-up is best-effort with retries; don't let set -e abort it.
+set +e
+
 ifup wan
-sleep 20
+
+# Wait for the PPPoE WAN to obtain an L3 address before starting SQM.
+# nss-edma.qos's check_addr aborts ("no IP on wan (proto=pppoe)") when
+# pppoe-wan has no address yet, and the iface hotplug for an interface='wan'
+# SQM section does not reliably re-fire -> with only a fixed sleep, PPPoE
+# negotiation outlasts the wait at boot and SQM silently never starts.
+# Poll pppoe-wan for up to ~60s instead.
+i=0
+while [ $i -lt 30 ]; do
+  if ip -4 addr show dev pppoe-wan 2>/dev/null | grep -q "inet " \
+     || ip -6 addr show dev pppoe-wan scope global 2>/dev/null | grep -q "inet6 "; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+if [ $i -lt 30 ]; then
+  echo "pppoe-wan has an IP after ~$((i * 2))s"
+else
+  echo "WARN: pppoe-wan still has no IP after 60s; starting SQM anyway"
+fi
+
+# let the link settle, then flush conntrack/ECM so flows re-accelerate cleanly
+sleep 3
 echo 1 > /sys/kernel/debug/ecm/ecm_db/defunct_all 2>/dev/null
 echo f > /proc/net/nf_conntrack 2>/dev/null
 echo "NSS+wifi+ECM up. accel counts:"
 cat /sys/kernel/debug/ecm/ecm_nss_ipv4/accelerated_count /sys/kernel/debug/ecm/ecm_nss_ipv6/accelerated_count
-/etc/init.d/sqm enabled && /etc/init.d/sqm restart || true
+
+# Start SQM, retrying until the NSS shaper actually attaches to wan
+# (check_addr can still lose a race in the first moments after the IP appears).
+if /etc/init.d/sqm enabled; then
+  j=0
+  while [ $j -lt 5 ]; do
+    j=$((j + 1))
+    /etc/init.d/sqm restart >/dev/null 2>&1
+    sleep 3
+    if tc qdisc show dev wan 2>/dev/null | grep -q nsstbl; then
+      echo "SQM active on wan (attempt $j)"
+      break
+    fi
+    echo "SQM not attached yet, retry $j/5"
+    sleep 3
+  done
+  if ! tc qdisc show dev wan 2>/dev/null | grep -q nsstbl; then
+    echo "WARN: SQM still not attached after 5 attempts"
+  fi
+fi
