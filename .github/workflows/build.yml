@@ -5,14 +5,16 @@ name: Build
 # All build parameters live in the `env:` block below — it is the one file you edit.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'devices/**'
-      - 'scripts/**'
-      - '.github/workflows/build.yml'
-  schedule:
-    - cron: "0 */2 * * *"
+    inputs:
+      theme:
+        description: 'Theme to build'
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - argon
+          - i-love-luci
 
 concurrency:
   group: build-${{ github.ref }}
@@ -46,21 +48,34 @@ jobs:
       upstream_sha: ${{ steps.check.outputs.upstream_sha }}
       nss_sha: ${{ steps.check.outputs.nss_sha }}
       need: ${{ steps.check.outputs.need }}
+      themes: ${{ steps.themes.outputs.themes }}
     steps:
       - uses: actions/checkout@v7
       - id: check
         run: bash scripts/check-updates.sh
+      - id: themes
+        run: |
+          theme="${{ inputs.theme || 'both' }}"
+          if [[ "$theme" == "both" ]]; then
+            echo 'themes=["argon","i-love-luci"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "themes=[\"$theme\"]" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
-    name: Build edma-nss (xiaomi_ax3600)
+    name: Build edma-nss (${{ matrix.theme }})
     needs: check
     if: needs.check.outputs.need == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 360
+    strategy:
+      matrix:
+        theme: ${{ fromJson(needs.check.outputs.themes) }}
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      THEME: ${{ matrix.theme }}
     steps:
       - name: Install build dependencies
         run: |
@@ -132,12 +147,13 @@ jobs:
           set -euo pipefail
           date=$(date -u +%F)
           timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-          tag_name="${RELEASE_PREFIX}-${timestamp}-${GITHUB_RUN_ID}"
+          tag_name="${RELEASE_PREFIX}-${THEME}-${timestamp}-${GITHUB_RUN_ID}"
           echo "release_tag=$tag_name" >>"$GITHUB_OUTPUT"
 
           {
-            echo "## OpenWrt Build — ${VARIANT}"
+            echo "## OpenWrt Build — ${VARIANT} (${THEME})"
             echo "- **Date**: $date"
+            echo "- **Theme**: \`${THEME}\`"
             echo "- **Variant**: \`${VARIANT}\`"
             echo "- **Device**: \`${DEVICE}\`"
             echo "- **Target**: \`${TARGET}\`"
@@ -151,7 +167,7 @@ jobs:
           mapfile -t assets < <(find "openwrt/bin/targets/${TARGET}/" -type f -not -path "*/packages/*")
           gh release create "$tag_name" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "OpenWrt ${VARIANT} $date" \
+            --title "OpenWrt ${VARIANT} ${THEME} $date" \
             --notes-file release_notes.md \
             "${assets[@]}"
 

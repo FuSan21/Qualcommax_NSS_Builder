@@ -52,9 +52,44 @@ log::info "Updating + installing all feeds"
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# 1b. Clone the selected theme package(s) into package/ after feeds, before defconfig.
+#     .git is removed so the OpenWrt build system does not treat them as sub-repos.
+THEME="${THEME:-argon}"
+log::info "Installing theme: $THEME"
+case "$THEME" in
+  argon)
+    rm -rf package/luci-theme-argon package/luci-app-argon-config
+    git clone --depth 1 -b master https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+    rm -rf package/luci-theme-argon/.git
+    git clone --depth 1 -b master https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
+    rm -rf package/luci-app-argon-config/.git
+    ;;
+  i-love-luci)
+    rm -rf package/luci-theme-i-love-luci
+    _tmp=$(mktemp -d)
+    git clone --depth 1 -b main https://github.com/3aa49ec6bfc910647fa1c5a013e48eef/i-love-luci.git "$_tmp"
+    cp -r "$_tmp/themes/luci-theme-i-love-luci" package/luci-theme-i-love-luci
+    rm -rf "$_tmp"
+    ;;
+  *)
+    log::die "Unknown THEME '$THEME' — valid values: argon, i-love-luci"
+    ;;
+esac
+
 # 2. Assemble .config from the device config, then resolve.
 log::info "Assembling .config from devices/$DEVICE/config"
 cp "$DEVICE_DIR/config" .config
+
+# Append theme-specific package selection (these packages live outside the feeds).
+case "$THEME" in
+  argon)
+    printf 'CONFIG_PACKAGE_luci-theme-argon=y\nCONFIG_PACKAGE_luci-app-argon-config=y\n' >> .config
+    ;;
+  i-love-luci)
+    printf 'CONFIG_PACKAGE_luci-theme-i-love-luci=y\n' >> .config
+    ;;
+esac
+
 make defconfig
 
 # 3. Disable bundling of custom feeds into the image (declared src-git, but we only want
