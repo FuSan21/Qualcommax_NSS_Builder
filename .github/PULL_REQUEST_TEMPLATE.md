@@ -16,7 +16,6 @@ Thanks for the PR. Filling this in helps reviewers move quickly.
 
 ## Verification
 
-- [ ] Lint workflow passes locally (`actionlint`, `shellcheck scripts/*.sh`, `yamllint builder.yml`)
+- [ ] Lint workflow passes locally (`actionlint`, `shellcheck scripts/*.sh`, `yamllint .github/workflows/`)
 - [ ] If `scripts/prune-releases.sh` changed: `bash scripts/tests/prune-releases.test.sh` passes
-- [ ] If a new device was added: a successful build run on a fork (link the run)
 - [ ] No secrets, tokens, or personal info in the diff

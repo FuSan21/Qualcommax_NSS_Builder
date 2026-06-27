@@ -1,23 +1,27 @@
-# Qualcommax Builder
+# Qualcommax NSS Builder
 
-### Fork-friendly OpenWrt firmware builder for Qualcomm IPQ807x — NSS offload on the upstream EDMA drivers
+### OpenWrt firmware builder for the Xiaomi AX3600 — NSS offload on the upstream EDMA drivers
 
 [![Build](https://img.shields.io/github/actions/workflow/status/JuliusBairaktaris/Qualcommax_NSS_Builder/build.yml?branch=main&style=flat-square&logo=github&label=Build)](https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder/actions/workflows/build.yml)
 [![Lint](https://img.shields.io/github/actions/workflow/status/JuliusBairaktaris/Qualcommax_NSS_Builder/lint.yml?branch=main&style=flat-square&logo=github&label=Lint)](https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder/actions/workflows/lint.yml)
 [![License](https://img.shields.io/github/license/JuliusBairaktaris/Qualcommax_NSS_Builder?style=flat-square&label=License)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/JuliusBairaktaris/Qualcommax_NSS_Builder?style=flat-square&label=Last%20Commit)](https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder/commits/main)
 
-A clean, opinionated GitHub Actions template for building OpenWrt firmware for Qualcomm IPQ807x devices. The build is a **matrix over variants** declared in [`builder.yml`](builder.yml); the default (and currently only) variant is **`edma-nss`**: Qualcomm NSS hardware offloading running on **OpenWrt main's upstream `qca-edma`/`qca-ppe` ethernet drivers** ([PR #22381](https://github.com/openwrt/openwrt/pull/22381)) — built from [openwrt-nss-edma](https://github.com/JuliusBairaktaris/openwrt-nss-edma) and [nss-packages](https://github.com/JuliusBairaktaris/nss-packages). The reference device is the Xiaomi AX3600; adding another is a directory copy.
+A GitHub Actions pipeline that builds one OpenWrt image — **`edma-nss`**: Qualcomm NSS hardware
+offloading running on **OpenWrt main's upstream `qca-edma`/`qca-ppe` ethernet drivers**
+([PR #22381](https://github.com/openwrt/openwrt/pull/22381)) — built from
+[openwrt-nss-edma](https://github.com/JuliusBairaktaris/openwrt-nss-edma) and
+[nss-packages](https://github.com/JuliusBairaktaris/nss-packages), for the Xiaomi AX3600.
 
-- **Single fork knob** — every variant, device, and feed lives in [`builder.yml`](builder.yml)
 - **No caching** — fresh runner every build, predictable output, no cache-poisoning surface
-- **Tested release pruning** — "keep last N *per variant*" has unit tests
+- **Auto-rebuild** — builds on push and every 2 hours, skipped while both source trees are unchanged
+- **Tested release pruning** — "keep last N" has unit tests
 - **Linted pipeline** — `actionlint`, `shellcheck`, `yamllint` run on every PR
 - **Reproducible builds** — pinned `SOURCE_DATE_EPOCH`, fixed locale, no ccache
 
 ---
 
-## The `edma-nss` variant
+## The `edma-nss` image
 
 | | `edma-nss` |
 |---|---|
@@ -32,48 +36,27 @@ This is, to our knowledge, the first NSS stack that keeps the upstream ethernet 
 
 **Runtime model:** the image boots on the plain host stack (Wi-Fi in host mode — loading the NSS modules is inert by design). `/usr/sbin/nss-up`, invoked from `rc.local`, arms the NSS data plane, boots the firmware, moves the radios onto the wifili data path and starts ECM + SQM. A reboot always returns to the stock host-only stack — that is the universal recovery path. Remove the `nss-up` line from `/etc/rc.local` to stay on the host stack permanently.
 
-The historical `nss` (qosmio tree) and `edma` (PR #22381 without NSS) variants were retired when `edma-nss` superseded both — one image now provides the upstream drivers *and* the offload. They remain available in the git history if you want to resurrect one as a custom variant.
-
----
-
-## Quick fork
-
-1. Click **Use this template** → create your repo.
-2. Edit [`builder.yml`](builder.yml). The defaults build a working AX3600 image; change `device:`, `feeds:`, or add a variant to retarget.
-3. (Optional) Customize [`devices/<id>/config`](devices/xiaomi_ax3600/config) (+ `config.<variant>`) and the `files*/` overlays.
-4. Push to `main`. The variant builds on push and every 2 hours, skipped automatically when its upstreams are unchanged.
-5. Releases land on the **Releases** page of your fork.
-
-For a different device, see [`docs/ADD_A_DEVICE.md`](docs/ADD_A_DEVICE.md).
-
 ---
 
 ## Repo layout
 
 ```
 .
-├── builder.yml                      # the file you fork-edit — defines the variants
 ├── devices/
 │   └── xiaomi_ax3600/
-│       ├── config                   # shared base .config (hardening, toolchain, QoL)
-│       ├── config.edma-nss          # variant fragment (NSS + Wi-Fi offload packages)
-│       ├── files/                   # overlay shared by all variants
-│       └── files.edma-nss/          # variant overlay (nss-up, sqm + offload settings)
-├── common/files/                    # overlay shared by all devices and variants
-├── patches/                         # *.patch applied to all variants; patches/<id>/ per variant
+│       ├── config                   # the .config (target, toolchain, hardening, NSS packages)
+│       ├── files/                   # base rootfs overlay (sshd_config, QoL uci-defaults)
+│       └── files.edma-nss/          # edma-nss overlay (nss-up, sqm + offload settings)
 ├── scripts/                         # bash helpers (tested, linted)
-│   ├── load-config.sh               # builder.yml -> build matrix (+ variant selection)
-│   ├── check-updates.sh             # resolve SHAs, skip unchanged variants
-│   ├── prepare-build.sh             # merge PRs, feeds, assemble .config, overlays
-│   ├── prune-releases.sh            # keep newest N per release prefix
+│   ├── check-updates.sh             # resolve SHAs, skip a build when upstreams are unchanged
+│   ├── prepare-build.sh             # feeds, assemble .config, overlays
+│   ├── prune-releases.sh            # keep newest N releases
 │   └── tests/
 ├── docs/
-│   ├── VARIANTS.md                  # variant model, and adding a variant
-│   ├── ADD_A_DEVICE.md
 │   ├── CUSTOMIZE.md
 │   └── ARCHITECTURE.md
 └── .github/workflows/
-    ├── build.yml                    # config -> check-updates -> build (matrix) -> prune
+    ├── build.yml                    # env block + check -> build -> prune
     └── lint.yml                     # actionlint + shellcheck + yamllint + prune tests
 ```
 
@@ -82,17 +65,18 @@ For a different device, see [`docs/ADD_A_DEVICE.md`](docs/ADD_A_DEVICE.md).
 ## How the pipeline works
 
 ```
-config -> check-updates -> build (matrix over variants) -> prune
+check -> build -> prune
 ```
 
 | Job | Purpose |
 |---|---|
-| `config` | Parses `builder.yml`, selects the variants for this event (scheduled set, or the `workflow_dispatch` choice), emits the build matrix |
-| `check-updates` | Resolves each variant's upstream (and NSS) commit; on scheduled ticks it drops variants whose latest release already records that commit (push + manual runs always build) |
-| `build` | For each selected variant: checks out its upstream, merges any PRs, applies overlays, compiles, uploads the artifact, creates a GitHub Release. `fail-fast: false` — one variant breaking doesn't abort the others |
-| `prune` | Keeps the newest `release.keep` releases **per variant prefix** (`scripts/prune-releases.sh`) |
+| `check` | Resolves the upstream (and NSS) ref to a commit SHA; on a scheduled tick it skips the build when the latest release already records that SHA (push + manual runs always build) |
+| `build` | Checks out the upstream at the pinned SHA, applies the config + overlays, compiles, creates a GitHub Release |
+| `prune` | Keeps the newest `KEEP` releases (`scripts/prune-releases.sh`) |
 
-Each job has minimal `permissions`. The cron schedule is the only knob outside `builder.yml` (GitHub Actions requires it as a static string).
+Every parameter (upstream, NSS, target, device, feed, retention) lives in the `env:` block at the
+top of [`.github/workflows/build.yml`](.github/workflows/build.yml). The cron schedule lives there
+too — GitHub Actions requires it as a static string.
 
 ---
 
@@ -123,13 +107,13 @@ Enabled NSS modules: `kmod-qca-nss-drv` (+ the `kmod-qca-ppe-nss` glue), `kmod-q
 | Component | Setting |
 |---|---|
 | GCC | 15 + Graphite loops |
-| Binutils | 2.45 |
+| Binutils | 2.46 |
 | Linker | Mold |
 | LTO | enabled |
 | Target flags | `-O2 -pipe -mcpu=cortex-a53+crc+crypto` |
 | ccache | **disabled** (no caching policy) |
 
-> Toolchain version pins live in the shared base config.
+> Toolchain version pins live in [`devices/xiaomi_ax3600/config`](devices/xiaomi_ax3600/config).
 
 ### Flashing
 
@@ -147,25 +131,18 @@ Or via LuCI: **System → Backup / Flash Firmware**, upload, uncheck "Keep setti
 
 | What | Where |
 |---|---|
-| Variants (upstream, feeds, target, prefix) | [`builder.yml`](builder.yml) → `variants` |
-| Active device(s) | [`builder.yml`](builder.yml) → `variants[].device` |
-| Release retention (per prefix) | [`builder.yml`](builder.yml) → `release.keep` |
+| Upstream / NSS / target / device / feed / retention | [`.github/workflows/build.yml`](.github/workflows/build.yml) → `env:` |
 | Build cron | [`.github/workflows/build.yml`](.github/workflows/build.yml) → `on.schedule` |
-| Shared package selection | [`devices/<id>/config`](devices/xiaomi_ax3600/config) |
-| Per-variant packages | [`devices/<id>/config.<variant>`](devices/xiaomi_ax3600/config.edma-nss) |
-| Rootfs overlay (shared / per-variant) | `devices/<id>/files/`, `devices/<id>/files.<variant>/` |
-| Source patches | [`patches/`](patches) (all) or `patches/<variant>/` |
+| Package selection | [`devices/xiaomi_ax3600/config`](devices/xiaomi_ax3600/config) |
+| Rootfs overlay | `devices/xiaomi_ax3600/files/`, `devices/xiaomi_ax3600/files.edma-nss/` |
 
-See [`docs/CUSTOMIZE.md`](docs/CUSTOMIZE.md) and [`docs/VARIANTS.md`](docs/VARIANTS.md) for the long version.
+See [`docs/CUSTOMIZE.md`](docs/CUSTOMIZE.md) for the long version.
 
 ---
 
 ## Contributing
 
-Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). Especially valuable:
-- A working `devices/<other_ipq807x_device>/` (AX9000, DL-WRX36, etc.)
-- Patches that fix upstream regressions
-- Doc improvements
+Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
