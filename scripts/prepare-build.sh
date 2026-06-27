@@ -52,6 +52,21 @@ log::info "Updating + installing all feeds"
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# 1b. Clone external packages directly into package/ after feeds, before defconfig.
+#     Removing .git prevents the OpenWrt build system from treating them as sub-repos.
+log::info "Cloning external packages"
+for entry in \
+  "luci-theme-argon https://github.com/jerrykuku/luci-theme-argon.git master" \
+  "luci-app-argon-config https://github.com/jerrykuku/luci-app-argon-config.git master"
+do
+  pkg_name=$(awk '{print $1}' <<<"$entry")
+  pkg_url=$(awk '{print $2}' <<<"$entry")
+  pkg_branch=$(awk '{print $3}' <<<"$entry")
+  rm -rf "package/$pkg_name"
+  git clone --depth 1 -b "$pkg_branch" "$pkg_url" "package/$pkg_name"
+  rm -rf "package/$pkg_name/.git"
+done
+
 # 2. Assemble .config from the device config, then resolve.
 log::info "Assembling .config from devices/$DEVICE/config"
 cp "$DEVICE_DIR/config" .config
