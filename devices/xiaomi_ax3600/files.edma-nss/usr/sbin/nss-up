@@ -17,12 +17,26 @@ echo 0x3c > $FWM
 sleep 8
 grep -E "if_num [2-5]:" /sys/kernel/debug/qca-ppe-nss/status
 
+# The firmware data plane is armed (the critical section above is guarded with
+# explicit '|| { ...; exit 1; }'). Everything from here on - bridge-mgr, qca-mcs,
+# ECM, pppoe, the Wi-Fi flip, WAN, SQM - is OPT-IN and best-effort: a failure
+# must NOT abort the script and leave the fw armed without ECM. In particular ECM
+# hard-depends on qca-mcs (ECM_MULTICAST_ENABLE), so 'modprobe ecm' can fail if
+# qca-mcs is missing/broken - don't let that take down the rest of the plane.
+set +e
+
 # bridge-mgr: offload Linux-bridge L2 forwarding into the firmware. Load after
 # the fw data plane is up (ports armed) and before ECM, so the firmware bridge
 # interface exists when ECM classifies bridged flows. On load it walks the
 # existing bridge's members and joins the qca_ppe (wired) ports; Wi-Fi members
 # are skipped until they are NSS interfaces.
 modprobe qca-nss-bridge-mgr 2>/dev/null || true
+
+# qca-mcs: IGMP/MLD bridge snooping + the membership source the ECM multicast
+# classifier reads. Load before ECM so the classifier binds qca-mcs's hooks;
+# this is what lets snooped multicast groups be replicated in PPE hardware
+# instead of host-flooded to every bridge port.
+modprobe qca-mcs 2>/dev/null || true
 
 sysctl -w net.netfilter.nf_conntrack_events=1
 sysctl -w net.netfilter.nf_conntrack_tcp_no_window_check=1
@@ -54,8 +68,8 @@ if [ -w /sys/module/ath11k/parameters/nss_offload ]; then
   /etc/init.d/qca-nss-pbuf start
 fi
 
-# WAN + SQM bring-up is best-effort with retries; don't let set -e abort it.
-set +e
+# WAN + SQM bring-up is best-effort with retries (set +e is already in effect
+# from just after the firmware-arm critical section above).
 
 ifup wan
 
