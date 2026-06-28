@@ -103,6 +103,9 @@ CONFIG_ATH11K_THERMAL=n
 CONFIG_PACKAGE_kmod-qca-nss-drv=y
 CONFIG_PACKAGE_kmod-qca-nss-ecm=y
 CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y
+## kmod-qca-nss-drv-bridge-mgr: hardware offload of wired LAN-bridge forwarding
+## (brought up by nss-up alongside the rest of the plane).
+CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr=y
 CONFIG_NSS_FIRMWARE_VERSION_12_5=y
 # AX3600 = 512MB RAM: NSS MEDIUM memory profile (HIGH is the ipq807x default and wrong here)
 CONFIG_NSS_MEM_PROFILE_MEDIUM=y

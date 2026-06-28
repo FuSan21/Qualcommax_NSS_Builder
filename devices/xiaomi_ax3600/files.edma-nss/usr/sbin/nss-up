@@ -17,6 +17,13 @@ echo 0x3c > $FWM
 sleep 8
 grep -E "if_num [2-5]:" /sys/kernel/debug/qca-ppe-nss/status
 
+# bridge-mgr: offload Linux-bridge L2 forwarding into the firmware. Load after
+# the fw data plane is up (ports armed) and before ECM, so the firmware bridge
+# interface exists when ECM classifies bridged flows. On load it walks the
+# existing bridge's members and joins the qca_ppe (wired) ports; Wi-Fi members
+# are skipped until they are NSS interfaces.
+modprobe qca-nss-bridge-mgr 2>/dev/null || true
+
 sysctl -w net.netfilter.nf_conntrack_events=1
 sysctl -w net.netfilter.nf_conntrack_tcp_no_window_check=1
 modprobe ecm front_end_selection=1
