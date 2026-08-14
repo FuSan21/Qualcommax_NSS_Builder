@@ -85,9 +85,25 @@ for p in "$BUILDER_REPO"/patches/feeds/*/*.patch; do
 done
 shopt -u nullglob
 
+# 1c. Clone the argon theme into package/ after feeds, before defconfig.
+#     .git is removed so the OpenWrt build system does not treat them as sub-repos.
+log::info "Installing theme: argon"
+rm -rf package/luci-theme-argon package/luci-app-argon-config
+git clone --depth 1 -b master https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+rm -rf package/luci-theme-argon/.git
+git clone --depth 1 -b master https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
+rm -rf package/luci-app-argon-config/.git
+
 # 2. Assemble .config from the common + device configs, then resolve.
 log::info "Assembling .config from ${CONFIGS[*]#"$BUILDER_REPO"/}"
 cat "${CONFIGS[@]}" >.config
+
+# Argon lives outside the feeds, so its packages are selected here.
+{
+  echo "CONFIG_PACKAGE_luci-theme-argon=y"
+  echo "CONFIG_PACKAGE_luci-app-argon-config=y"
+} >>.config
+
 make defconfig
 
 # 2b. Verify defconfig honoured the device config. Kconfig silently drops a
