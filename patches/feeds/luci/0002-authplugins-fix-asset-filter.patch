@@ -1,0 +1,28 @@
+luci-base: fix auth plugin asset loading
+
+normalize_assets() passes a string to match(), which requires a regexp
+and returns null for anything else. The path check therefore fails for
+every asset and each one is dropped by the following continue, so an
+auth plugin's scripts are never rendered on the login page.
+
+The failure is silent. The html returned by the same check() call is
+unaffected, so a plugin's login UI appears without the script that
+drives it and nothing is logged. plugins/luci-plugin-auth-example is
+affected as well.
+
+Compile the pattern with regexp() before matching. uuid is validated
+against /^[a-f0-9]{32}$/ when the plugin is loaded, so the interpolated
+value cannot contain metacharacters.
+
+Signed-off-by: Fuad Hasan <fuad.antor@gmail.com>
+--- a/modules/luci-base/ucode/authplugins.uc
++++ b/modules/luci-base/ucode/authplugins.uc
+@@ -157,7 +157,7 @@
+ 		if (type(src) != 'string')
+ 			continue;
+ 
+-		if (!match(src, sprintf("^/luci-static/plugins/%s/", uuid)))
++		if (!match(src, regexp(sprintf("^/luci-static/plugins/%s/", uuid))))
+ 			continue;
+ 
+ 		if (match(src, /\.\.|[\r\n\t ]/))

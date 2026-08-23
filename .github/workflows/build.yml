@@ -1,19 +1,13 @@
 name: Build
 
-# Builds the edma-nss images for every ipq807x device, in four groups and two
-# flavours (default, and mesh on the 11.4 firmware line):
-#   check (upstream moved?) -> draft release -> build each group -> publish -> prune
+# Fork of the upstream builder, trimmed to the one device this repo runs:
+# the Xiaomi AX3600, edma-nss flavour, argon theme (cloned in prepare-build.sh).
+#   check (upstream moved?) -> draft release -> build -> publish -> prune
 # All build parameters live in the `env:` block below and in devices/<group>/config.
 on:
+  # Dispatch-only. This fork builds images that get flashed by hand, so a run
+  # is started deliberately - not by upstream moving, and not by a push here.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'devices/**'
-      - 'scripts/**'
-      - '.github/workflows/build.yml'
-  schedule:
-    - cron: "0 */2 * * *"
 
 concurrency:
   group: build-${{ github.ref }}
@@ -25,7 +19,6 @@ permissions:
 env:
   UPSTREAM_REPO: JuliusBairaktaris/openwrt-nss-edma
   UPSTREAM_REF: nss-edma-rework
-  PPE_REF: ppe-offload
   NSS_REPO: JuliusBairaktaris/nss-packages
   NSS_REF: edma-nss
   TARGET: qualcommax/ipq807x
@@ -70,8 +63,6 @@ jobs:
       PPE_SHA: ${{ needs.check.outputs.ppe_sha }}
     outputs:
       tag: ${{ steps.draft.outputs.tag }}
-      mesh_tag: ${{ steps.draft.outputs.mesh_tag }}
-      ppe_tag: ${{ steps.draft.outputs.ppe_tag }}
     steps:
       - id: draft
         run: |
@@ -146,8 +137,6 @@ jobs:
 
           {
             echo "tag=$(draft "$RELEASE_PREFIX" "$VARIANT")"
-            echo "mesh_tag=$(draft "$MESH_RELEASE_PREFIX" "$MESH_RELEASE_PREFIX")"
-            echo "ppe_tag=$(draft "$PPE_RELEASE_PREFIX" "$PPE_RELEASE_PREFIX")"
           } >>"$GITHUB_OUTPUT"
 
   build:
@@ -160,28 +149,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # One entry per devices/<name>/ directory. The ipq807x-* groups exist
-        # because the ath11k memory profile is compile-time and image-wide, so
-        # boards can only share a build when they share a profile.
-        device: [xiaomi_ax3600, ipq807x-1g, ipq807x-512m, ipq807x-256m]
+        # This fork builds only the board it runs. Upstream's other groups
+        # (ipq807x-1g/512m/256m) exist because the ath11k memory profile is
+        # compile-time and image-wide; they are dropped here, not adopted.
+        device: [xiaomi_ax3600]
         # The flavour is a .config fragment on top of the same overlays and the
-        # same source trees; mesh needs the 11.4 firmware, which is image-wide
-        # too, so it cannot share a build with the default flavour either.
-        flavour: [default, mesh]
-        include:
-          - flavour: mesh
-            config_fragment: devices/common/config.mesh
-          # The PPE flavour is one device on its own branch with no NSS feed:
-          # an include with a flavour outside the base matrix adds exactly this
-          # one combination.
-          - device: xiaomi_ax3600
-            flavour: ppe
-            config_fragment: devices/common/config.ppe
+        # same source trees. Upstream's mesh and ppe flavours are dropped too;
+        # re-adding one is this list, its `include:` entry, and a matching
+        # CONFIG_FRAGMENT line in env: below - prepare-build.sh still applies
+        # a fragment whenever CONFIG_FRAGMENT is set.
+        flavour: [default]
     env:
       GH_TOKEN: ${{ github.token }}
       DEVICE: ${{ matrix.device }}
-      CONFIG_FRAGMENT: ${{ matrix.config_fragment }}
-      TAG: ${{ matrix.flavour == 'mesh' && needs.release.outputs.mesh_tag || matrix.flavour == 'ppe' && needs.release.outputs.ppe_tag || needs.release.outputs.tag }}
+      TAG: ${{ needs.release.outputs.tag }}
       # The PPE flavour builds its own branch and adds no NSS feed; VARIANT
       # picks the files.<variant> overlays in prepare-build.sh.
       VARIANT: ${{ matrix.flavour == 'ppe' && 'ppe' || 'edma-nss' }}
@@ -290,27 +271,18 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.release.outputs.tag }}
-      MESH_TAG: ${{ needs.release.outputs.mesh_tag }}
-      PPE_TAG: ${{ needs.release.outputs.ppe_tag }}
       BUILD_RESULT: ${{ needs.build.result }}
     steps:
       - name: Publish or discard
         run: |
           set -euo pipefail
           if [[ "$BUILD_RESULT" != "success" ]]; then
-            # A half-built release would silently be missing devices, and a
-            # draft left behind is never pruned. Drop both and fail. No
+            # A draft left behind is never pruned. Drop it and fail. No
             # --cleanup-tag: a draft's tag exists only inside the release.
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
-            gh release delete "$MESH_TAG" --repo "$GITHUB_REPOSITORY" --yes
-            gh release delete "$PPE_TAG" --repo "$GITHUB_REPOSITORY" --yes
-            echo "::error::a build group failed ($BUILD_RESULT); draft releases discarded"
+            echo "::error::the build failed ($BUILD_RESULT); draft release discarded"
             exit 1
           fi
-          # --latest stays on the default flavour: mesh costs the 12.5 firmware
-          # line, so it is the deliberate pick, never the one a link lands on.
-          gh release edit "$MESH_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
-          gh release edit "$PPE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
   prune:
@@ -328,8 +300,6 @@ jobs:
       - name: Prune
         run: |
           set -euo pipefail
-          # Per prefix: the two flavours are separate series, and a shared keep
-          # window would drop one flavour's newest image to hold the other's.
+          # Scoped to the prefix, so a release series this fork does not build
+          # is never counted against this one's keep window.
           PREFIX="$RELEASE_PREFIX" bash scripts/prune-releases.sh
-          PREFIX="$MESH_RELEASE_PREFIX" bash scripts/prune-releases.sh
-          PREFIX="$PPE_RELEASE_PREFIX" bash scripts/prune-releases.sh
