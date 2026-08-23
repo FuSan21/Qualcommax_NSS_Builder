@@ -6,17 +6,11 @@ name: Build PPE
 # Unlike the NSS builds there is one permanent prerelease, updated in place, so
 # the link a tester was given keeps working.
 on:
+  # Dispatch-only in this fork, for the same reason build.yml is: a run is
+  # started deliberately, not by a push here and not on a timer. Upstream's
+  # push and schedule triggers are dropped - this fork flashes one AX3600 by
+  # hand and does not need nightly PPE test images for boards it does not own.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'devices/common-ppe/**'
-      - 'devices/ppe-*/**'
-      - 'patches/feeds/ppe/**'
-      - 'scripts/**'
-      - '.github/workflows/build-ppe.yml'
-  schedule:
-    - cron: "30 3 * * *"
 
 concurrency:
   group: build-ppe
