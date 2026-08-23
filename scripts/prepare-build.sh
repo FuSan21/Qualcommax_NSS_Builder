@@ -92,9 +92,70 @@ for p in "$BUILDER_REPO/patches/feeds/$VARIANT"/*/*.patch; do
 done
 shopt -u nullglob
 
+# 1c. Clone the argon theme into package/ after feeds, before defconfig.
+#     .git is removed so the OpenWrt build system does not treat them as sub-repos.
+log::info "Installing theme: argon"
+rm -rf package/luci-theme-argon package/luci-app-argon-config
+git clone --depth 1 -b master https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+rm -rf package/luci-theme-argon/.git
+git clone --depth 1 -b master https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
+rm -rf package/luci-app-argon-config/.git
+
+# 1d. Clone the WebAuthn passkey login plugin and the helper binary it shells
+#     out to. Both live in a subdirectory of their repo, so the clone is made
+#     in a temp dir and only that subdirectory is copied into package/ - which
+#     also leaves .git behind without having to strip it.
+log::info "Installing out-of-feed packages: webauthn"
+rm -rf package/luci-app-webauthn package/webauthn-helper
+webauthn_tmp="$(mktemp -d)"
+git clone --depth 1 -b master https://github.com/Tokisaki-Galaxy/luci-plugin-webauthn.git "$webauthn_tmp/plugin"
+cp -a "$webauthn_tmp/plugin/luci-app-webauthn" package/luci-app-webauthn
+git clone --depth 1 -b master https://github.com/Tokisaki-Galaxy/openwrt-webauthn-helper.git "$webauthn_tmp/helper"
+cp -a "$webauthn_tmp/helper/openwrt-webauthn-helper" package/webauthn-helper
+rm -rf "$webauthn_tmp"
+
+# 1e. Apply local patches to the packages cloned above
+#     (patches/packages/<package>/*.patch, paths relative to the package root).
+#     Not scoped by variant the way the feed patches are: 1c and 1d clone
+#     unconditionally, so every flavour gets the same package sources and wants
+#     the same fixes. Patches here track an upstream moving target, so a patch
+#     that no longer applies is fatal rather than skipped - it means upstream
+#     changed under us and the carried fix needs re-checking.
+shopt -s nullglob
+for p in "$BUILDER_REPO"/patches/packages/*/*.patch; do
+  pkg="package/$(basename "$(dirname "$p")")"
+  if [ ! -d "$pkg" ]; then
+    log::die "$(basename "$p") targets $pkg, which was not cloned"
+  fi
+  if patch -p1 -d "$pkg" --dry-run --forward <"$p" >/dev/null 2>&1; then
+    log::info "Patching $pkg with $(basename "$p")"
+    patch -p1 -d "$pkg" --forward <"$p"
+  elif patch -p1 -d "$pkg" --dry-run --reverse <"$p" >/dev/null 2>&1; then
+    log::info "Skipping $(basename "$p") (already applied)"
+  else
+    log::die "$(basename "$p") does not apply to $pkg"
+  fi
+done
+shopt -u nullglob
+
 # 2. Assemble .config from the common + device configs, then resolve.
 log::info "Assembling .config from ${CONFIGS[*]#"$BUILDER_REPO"/}"
 cat "${CONFIGS[@]}" >.config
+
+# The packages cloned into package/ above live outside the feeds, so they are
+# selected here rather than in devices/*/config.
+EXTRA_SELECTS=(
+  "CONFIG_PACKAGE_luci-theme-argon=y"
+  "CONFIG_PACKAGE_luci-app-argon-config=y"
+  # The helper binary is a hard runtime dependency of the plugin that the
+  # plugin's own Makefile does not declare (it depends on luci-base alone).
+  # Without it the Passkeys page loads and every call fails with
+  # "webauthn-helper binary not found", so it is selected explicitly.
+  "CONFIG_PACKAGE_luci-app-webauthn=y"
+  "CONFIG_PACKAGE_webauthn-helper=y"
+)
+printf '%s\n' "${EXTRA_SELECTS[@]}" >>.config
+
 make defconfig
 
 # 2b. Verify defconfig honoured the device config. Kconfig silently drops a
@@ -107,7 +168,7 @@ log::info "Verifying defconfig kept the requested symbols"
 dropped=()
 while IFS= read -r req; do
   grep -qxF "$req" .config || dropped+=("$req")
-done < <(cat "${CONFIGS[@]}" |
+done < <({ cat "${CONFIGS[@]}"; printf '%s\n' "${EXTRA_SELECTS[@]}"; } |
   grep -E '^CONFIG_[A-Za-z0-9_-]+=' |
   awk -F= '{ last[$1] = $0 } END { for (s in last) print last[s] }' |
   grep -vE '=n$')

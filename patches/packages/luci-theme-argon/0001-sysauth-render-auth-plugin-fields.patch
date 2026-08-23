@@ -1,0 +1,91 @@
+feat(sysauth): render LuCI auth plugin fields on the login page
+
+luci-base hands the login template four scope variables for auth plugins
+- auth_fields, auth_message, auth_html and auth_assets - and picks the
+theme's own sysauth template over its generic one whenever the theme
+ships one (dispatcher.uc). This theme ships one and references none of
+them, so on Argon a plugin's extra fields, its notice, its markup and
+its script are all dropped and the user only ever sees username and
+password. The in-tree themes (bootstrap, footstrap) render all four.
+
+The mechanism landed in luci-base after this theme's templates were
+rewritten into ucode, which is why the gap went unnoticed.
+
+Render the four in Argon's own markup: plugin fields join the existing
+.input-container so they inherit its input styling, the message reuses
+.errorbox, and the asset scripts are emitted last so a plugin's markup
+is in the document before its script runs. No stylesheet change, so the
+compiled CSS does not need regenerating.
+
+The credentials alert is gated on !auth_plugin and the plugin message is
+shown beside it rather than instead of it. auth_plugin is set only on
+the render that follows an accepted password, so the two alerts now
+distinguish a wrong password from a password that was right with a
+challenge still pending, instead of one hiding the other.
+
+--- a/ucode/template/themes/argon/sysauth.ut
++++ b/ucode/template/themes/argon/sysauth.ut
+@@ -129,10 +129,22 @@
+ 			<!-- Login Form Start -->
+ 			<form class="form-login" method="post" action="{{ http.getenv("REQUEST_URI") }}">
+ 
+-				{%- if (fuser): %}
++				{#-
++				 `auth_plugin` is set only on the render that follows an ACCEPTED password
++				 (dispatcher.uc), so it is what separates "the password was wrong" from "the
++				 password was right and a plugin wants more". Gating the credentials alert on
++				 `!auth_plugin` and showing `auth_message` beside it rather than instead of it
++				 covers all four states: a wrong password, a wrong password with a challenge
++				 already pending, the challenge prompt itself, and a failed challenge.
++				-#}
++				{%- if (fuser && !auth_plugin): %}
+ 				<div class="errorbox">{{ _('Invalid username and/or password! Please try again.') }}</div>
+ 				{% endif -%}
+ 
++				{%- if (auth_message): %}
++				<div class="errorbox">{{ auth_message }}</div>
++				{% endif -%}
++
+ 				<div class="input-container">
+ 					<div class="input-group user-icon">
+ 						<input class="cbi-input-user" id="cbi-input-user" type="text" name="luci_username" value="{{ entityencode(duser, true) }}" />
+@@ -142,10 +154,39 @@
+ 						<input class="cbi-input-password" id="cbi-input-password" type="password" name="luci_password" />
+ 						<label class="border" for="cbi-input-password"></label>
+ 					</div>
++					{%- if (auth_fields): %}
++					{%- for (let field in auth_fields): %}
++					<div class="input-group">
++						{#- This theme labels its fields with an icon rather than visible text, so
++						 the field label becomes the placeholder when the plugin gives no own. -#}
++						<input class="cbi-input-text" id="{{ field.name }}" type="{{ field.type ?? 'text' }}" name="{{ field.name }}"
++							placeholder="{{ field.placeholder ?? _(field.label ?? field.name) }}"
++							{% if (field.inputmode): %}inputmode="{{ field.inputmode }}"{% endif %}
++							{% if (field.pattern): %}pattern="{{ field.pattern }}"{% endif %}
++							{% if (field.maxlength): %}maxlength="{{ field.maxlength }}"{% endif %}
++							{% if (field.autocomplete): %}autocomplete="{{ field.autocomplete }}"{% endif %}
++							{% if (field.required): %}required{% endif %} />
++						<label class="border" for="{{ field.name }}"></label>
++					</div>
++					{%- endfor %}
++					{%- endif %}
+ 				</div>
++				{%- if (auth_html): %}
++				<div class="auth-plugin">{{ auth_html }}</div>
++				{% endif -%}
++
+ 				<div>
+ 					<input type="submit" value="{{ _('Log in') }}" class="cbi-button cbi-button-apply" />
+ 				</div>
++				{#- Loaded last so the markup a plugin emitted through `auth_html` is already
++				 in the document when its script runs. -#}
++				{%- if (auth_assets): %}
++				{%- for (let asset in auth_assets): %}
++				{%- if (asset.type == 'script'): %}
++				<script src="{{ asset.src }}"></script>
++				{%- endif %}
++				{%- endfor %}
++				{%- endif %}
+ 			</form>
+ 			<!-- Login Form End -->
+ 			<script type="text/javascript">//<![CDATA[
