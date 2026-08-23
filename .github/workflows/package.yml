@@ -1,0 +1,155 @@
+name: Build package
+
+# Builds a single LuCI package as an installable .apk for the router this repo
+# images - currently the WebAuthn passkey login plugin, which is not in any
+# OpenWrt feed. Dispatch-only, like the image build: a run is started
+# deliberately, not by the package repo moving.
+#
+# Every build parameter lives in the `env:` block below; point PKG_* at another
+# repo to build a different package.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Package repo ref to build (branch, tag or commit)'
+        type: string
+        default: master
+      publish:
+        description: 'Publish a release with the .apk attached'
+        type: boolean
+        default: false
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PKG_REPO: Tokisaki-Galaxy/luci-plugin-webauthn
+  PKG_NAME: luci-app-webauthn
+  PKG_SUBDIR: luci-app-webauthn        # path to the package Makefile inside PKG_REPO
+  TARGET: qualcommax/ipq807x           # same target as the images, so the luci feed matches
+  RELEASE_PREFIX: luci-app-webauthn
+
+jobs:
+  build:
+    name: Build package
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      # Only needed for the optional release; the build itself reads nothing.
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          # The SDK ships its own toolchain, so this is only what unpacking it
+          # and running its build system needs. zstd is for the .tar.zst SDK.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gawk git libncurses-dev python3 rsync unzip wget zstd
+
+      - name: Checkout builder repo
+        uses: actions/checkout@v7
+
+      - name: Checkout package source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.PKG_REPO }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          path: pkgsrc
+
+      - name: Resolve package version
+        id: version
+        run: |
+          set -euo pipefail
+          # OpenWrt's own convention for a git-sourced package:
+          # <commit date>~<short sha>-r<release>. Derived from the commit, not
+          # from the clock or the run number, so re-running this workflow on
+          # the same ref produces a byte-identical version string.
+          sha=$(git -C pkgsrc rev-parse --short=8 HEAD)
+          date=$(TZ=UTC git -C pkgsrc show -s --format=%cd --date=format-local:%Y.%m.%d HEAD)
+          epoch=$(git -C pkgsrc show -s --format=%ct HEAD)
+          {
+            echo "pkg_version=${date}~${sha}"
+            echo "pkg_release=1"
+            # '~' is not legal in a git refname, so the tag flattens it.
+            echo "tag=${RELEASE_PREFIX}-${date}-${sha}"
+            echo "sha=${sha}"
+          } >>"$GITHUB_OUTPUT"
+          {
+            echo "SOURCE_DATE_EPOCH=${epoch}"
+            echo "TZ=UTC"
+            echo "LC_ALL=C"
+          } >>"$GITHUB_ENV"
+
+      - name: Build .apk
+        env:
+          PKG_SRC: ${{ github.workspace }}/pkgsrc/${{ env.PKG_SUBDIR }}
+          OUT_DIR: ${{ github.workspace }}/out
+          SDK_DIR: ${{ github.workspace }}/sdk
+          PKG_VERSION: ${{ steps.version.outputs.pkg_version }}
+          PKG_RELEASE: ${{ steps.version.outputs.pkg_release }}
+        run: bash scripts/build-package.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG_NAME }}-${{ steps.version.outputs.sha }}
+          path: out/
+          if-no-files-found: error
+
+      - name: Publish release
+        if: inputs.publish
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PKG_VERSION: ${{ steps.version.outputs.pkg_version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${PKG_NAME} ${PKG_VERSION}"
+            echo "- **Source**: \`${PKG_REPO}@${{ steps.version.outputs.sha }}\`"
+            echo "- **Built against**: OpenWrt snapshot SDK, \`${TARGET}\`"
+            echo
+            echo "Arch-independent (\`LUCI_PKGARCH:=all\`), so it installs on any"
+            echo "apk-based OpenWrt build - which is what this repo's images are."
+            echo
+            echo '```sh'
+            echo "apk add --allow-untrusted ./${PKG_NAME}-${PKG_VERSION}-r1.apk"
+            echo '```'
+            echo
+            echo "\`--allow-untrusted\` because the package is signed with this"
+            echo "run's throwaway SDK key, which the router does not have."
+            echo
+            echo "The plugin ships disabled. To turn it on:"
+            echo
+            echo '```sh'
+            echo "uci set luci_plugins.global.enabled='1'"
+            echo "uci set luci_plugins.global.auth_login_enabled='1'"
+            echo "uci commit luci_plugins"
+            echo '```'
+            echo
+            echo "then enrol a passkey under System -> WebAuthn before logging out."
+          } >release_notes.md
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${PKG_NAME} ${PKG_VERSION}" \
+            --notes-file release_notes.md \
+            out/*.apk out/sha256sums.txt
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${PKG_NAME} ${{ steps.version.outputs.pkg_version }}"
+            echo
+            echo '```'
+            cat out/sha256sums.txt
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"

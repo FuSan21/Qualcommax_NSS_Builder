@@ -211,9 +211,9 @@ devices/common/          # shared by every image
   files.edma-nss/        # edma-nss overlay (rc.local)
 devices/xiaomi_ax3600/   # one directory per build: config + optional overlays
 devices/ipq807x-{1g,512m,256m}/
-scripts/                 # check-updates, prepare-build, prune-releases (tested, linted)
+scripts/                 # check-updates, prepare-build, prune-releases (tested, linted), build-package
 docs/                    # CUSTOMIZE.md, ARCHITECTURE.md
-.github/workflows/       # build.yml (check → release → build → publish → prune), lint.yml
+.github/workflows/       # build.yml (check → release → build → publish → prune), package.yml, lint.yml
 ```
 
 Each `devices/<name>/config` is concatenated onto `devices/common/config` and
